@@ -114,20 +114,18 @@ class Player():
         # (start_bank - current_bank) = gain_loss
         # gain_loss / total_hands -> avg gain/loss per hand
         # TODO: what is wager is not uniform?
-        return (self.initial_bank - self.bankroll) / self.total_hands
+        return (self.initial_bank - self.bankroll) / self.total_hands if self.total_hands > 0 else 0
 
     def decision(self, dealer_cards: Hand, cards_shown: List) -> Actions:
         raise NotImplementedError()
 
 
-class Player0(Player):
+class Player17Hit(Player):
     def decision(self, dealer_cards: Hand, cards_shown: List) -> Actions:
         '''basic strategy.  Abstract this away to experiment with other strategies'''
         '''After 100 hands, these seem to be between 0 and 25 bankroll remains.  With static betting'''
         # Return an action depending on the self.hand + dealer and other cards
-        if self.hand.value >= 17:
-            return Actions.STAND
-        elif self.hand.value < 17:
+        if self.hand.value < 17:
             return Actions.HIT
         else:
             return Actions.STAND
@@ -247,16 +245,27 @@ class Twentyone():
                 if verbose and player.hand.value > 21:
                     print(f"bust for player {player.id}")
 
-            # Dealer play is simple.
-            while self.dealer.hand.value < 17:
+            # TODO: If all players bust, then dealer does nothing?
+            all_player_bust = all([p.hand.value > 21 for p in self.players])
+            # Dealer play is simple.  Hit till 17 or more
+            if all_player_bust:
+                # single card, does not matter, players all busted
                 card = self.deck.deal_card()
                 self.dealer.hand.hit(card)
+            else:
+                while self.dealer.hand.value < 17:
+                    card = self.deck.deal_card()
+                    self.dealer.hand.hit(card)
 
             # Compare hands, payout to bankroll as needed
             dealer_total = self.dealer.hand.value
             for player in self.players:
                 player.total_hands += 1
-                if player.hand.value == dealer_total:
+                if player.hand.value > 21:
+                    # player bust, does not matter what dealer got
+                    player.bankroll -= player.hand_wager
+
+                elif player.hand.value == dealer_total:
                     # If tie is 21, the natural wins:
                     if player.hand.value == 21:
                         if len(player.hand) == 2 and len(self.dealer.hand) == 2:
@@ -281,22 +290,20 @@ class Twentyone():
                     if player.hand.value == 21 and len(player.hand) == 2:
                         # Natural 21 pays 1.5x
                         player.bankroll += (1.5 * player.hand_wager)
-                    elif player.hand.value > 21:  # bust
-                        player.bankroll -= player.hand_wager
                     else:  # > dealer total
                         player.bankroll += player.hand_wager
                 else:  # player.hand.value < dealer_total
                     # Loss
                     player.bankroll -= player.hand_wager
             if verbose:
-                print(f"Dealer Total {self.dealer.hand.value} from hand {self.dealer.hand}")
                 for player in self.players:
                     print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand}. Bankroll: {player.bankroll}")
+                print(f"Dealer Total {self.dealer.hand.value} from hand {self.dealer.hand}")
 
-            print(self.players)
             self.dealer.hand = Hand()
             for player in self.players:
                 player.hand = Hand()
+        print(self.players)
 
 
 def test_double():
@@ -317,6 +324,6 @@ def test_double():
 
 if __name__ == "__main__":
     # test_double()
-    game = Twentyone(player=PlayerBasic1, number_players=1)
-    game.play(n_rounds=50, verbose=True)
+    game = Twentyone(player=PlayerBasic1, number_players=5)
+    game.play(n_rounds=50000, verbose=False)
     '''Still not qutie right.  After 1000 plays, it is positive for player.  After 5000 even more so.  Missing some condition.'''

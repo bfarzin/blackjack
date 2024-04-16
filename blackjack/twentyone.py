@@ -8,6 +8,7 @@
 import numpy as np
 from enum import Enum
 from typing import List
+np.random.seed(20240414)
 
 
 CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
@@ -87,22 +88,41 @@ class Player():
     '''player with a bankroll that can win/lose hands'''
     def __init__(self, id: int = None, initial_bank: float = 1000):
         self.id = id
+        self.initial_bank = initial_bank
+        self.total_wagered = 0
         self.bankroll = initial_bank
-        self.hand = Hand()
+        self.total_hands = 0
+        self.hand = Hand()  # make this a list of hands so we can split
         self.hand_wager = None
 
     def __repr__(self) -> str:
-        return f"Player(id={self.id}, bankroll={self.bankroll}, hand={self.hand})"
+        return f"Player(id={self.id}, bankroll={self.bankroll}, total_hands={self.total_hands},avg_loss/hand={self.avg_edge_loss} , hand={self.hand})"
 
     def wager(self) -> float:
         '''Determine wager as fraction of bankroll?'''
         # TODO: Check the table min/max?  Wager according to total count?
-        return 10
+        amt = 10
+        self.total_wagered += amt
+        return amt
+
+    @property
+    def avg_edge_loss(self) -> float:
+        '''compute the average loss per hand for this player so far'''
+        # (start_bank - current_bank) = gain_loss
+        # gain_loss / total_hands -> avg gain/loss per hand
+        # TODO: what is wager is not uniform?
+        return (self.initial_bank - self.bankroll) / self.total_hands
 
     def decision(self, dealer_cards: Hand, cards_shown: List) -> Actions:
+        raise NotImplementedError()
+
+
+class Player0(Player):
+    def decision(self, dealer_cards: Hand, cards_shown: List) -> Actions:
         '''basic strategy.  Abstract this away to experiment with other strategies'''
+        '''After 100 hands, these seem to be between 0 and 25 bankroll remains.  With static betting'''
         # Return an action depending on the self.hand + dealer and other cards
-        if self.hand.value >= 20:
+        if self.hand.value >= 17:
             return Actions.STAND
         elif self.hand.value < 17:
             return Actions.HIT
@@ -110,11 +130,55 @@ class Player():
             return Actions.STAND
 
 
+class PlayerBasic(Player):
+    '''How much can the true basic strategy cut the edge of the house?'''
+    def decision(self, dealer_cards: Hand, cards_shown: List) -> Actions:
+        '''basic strategy.  Abstract this away to experiment with other strategies'''
+        '''
+        self.hand.value == 17 --> STAND
+        dealers shown card value >= 7 (including A)  --> HIT
+        dealers shown card value < 7 && self.hand.value >= 12 --> STAND
+        '''
+        # Return an action depending on the self.hand + dealer and other cards
+        dealer_card_value_7 = (dealer_cards.held[0] == 'A') or (VALUE_MAP[dealer_cards.held[0]] >= 7)
+        if self.hand.value >= 17:
+            return Actions.STAND
+        elif dealer_card_value_7:
+            return Actions.HIT
+        elif (not dealer_card_value_7) and self.hand.value >= 12:
+            return Actions.STAND
+        else:
+            return Actions.HIT
+
+
+class PlayerBasic1(Player):
+    '''How much can the true basic strategy cut the edge of the house?'''
+    def decision(self, dealer_cards: Hand, cards_shown: List) -> Actions:
+        '''basic strategy.  Abstract this away to experiment with other strategies'''
+        '''
+        self.hand.value == 17 --> STAND
+        dealers shown card value >= 7 (including A)  --> HIT
+        dealers shown card value < 7 && self.hand.value >= 12 --> STAND
+        '''
+        # Return an action depending on the self.hand + dealer and other cards
+        dealer_card_value_7 = (dealer_cards.held[0] == 'A') or (VALUE_MAP[dealer_cards.held[0]] >= 7)
+        if self.hand.value >= 17:
+            return Actions.STAND
+        elif self.hand.value == 11:
+            return Actions.DOUBLE
+        elif dealer_card_value_7:
+            return Actions.HIT
+        elif (not dealer_card_value_7) and self.hand.value >= 12:
+            return Actions.STAND
+        else:
+            return Actions.HIT
+
+
 class Twentyone():
     '''class at the top of the game.  Get players, dealer, hands, payouts'''
-    def __init__(self, number_players=1):
-        self.dealer = Player(id=0)
-        self.players = [Player(id=n + 1) for n in range(number_players)]
+    def __init__(self, player: Player, number_players: int = 1):
+        self.dealer = player(id=0)
+        self.players = [player(id=n + 1) for n in range(number_players)]
         self.deck = InfDeck()
 
     def inital_deal(self):
@@ -127,7 +191,7 @@ class Twentyone():
         card = self.deck.deal_card()
         self.dealer.hand.hit(card)
 
-    def play(self):
+    def play(self, n_rounds: int = 1, verbose: bool = False):
         '''
         Outline game play, sequence, totals and payouts.
         Put the parts together and then segment out the objects as needed
@@ -137,92 +201,103 @@ class Twentyone():
         1. Inintal deal to each player, two cards each and one card to dealer.
           --> All these cards are seen by all players.
         2. Starting with first player, decision made to Hit, Stand, Double, Split (enum?) list of actions.
-        3. Dealer plays with Hit/Stand according to standard strategy.
+        3. Dealer plays with Hit/St and according to standard strategy.
         4. payout determined as 1:1 or 3:2 for player blackjack.
         '''
 
-        for player in self.players:
-            player.hand_wager = player.wager()
+        for _ in range(n_rounds):
 
-        self.inital_deal()
+            for player in self.players:
+                player.hand_wager = player.wager()
 
-        # All players act in turn
-        for player in self.players:
-            # player implements strategy here. Player knows own cards
-            cards_shown = []  # TODO: Tabulate all non-dealer cards
-            dealer_cards = self.dealer.hand
-            while player.hand.value <= 21:
-                action = player.decision(dealer_cards, cards_shown)
-                print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand} action: {action}")
+            self.inital_deal()
 
-                if action is Actions.STAND:
-                    break
-                elif action is Actions.HIT:
-                    card = self.deck.deal_card()
-                    player.hand.hit(card)
-                elif action in Actions.DOUBLE:
+            # All players act in turn
+            for player in self.players:
+                # player implements strategy here. Player knows own cards
+                cards_shown = []  # TODO: Tabulate all non-dealer cards
+                dealer_cards = self.dealer.hand
+                while player.hand.value <= 21:
+                    action = player.decision(dealer_cards, cards_shown)
+                    if action is Actions.DOUBLE:
+                        # Double wager, single card, stop regardless of total
+                        player.hand_wager *= 2
+                        card = self.deck.deal_card()
+                        player.hand.hit(card)
+                        break
+                    if action is Actions.STAND:
+                        break
+                    elif action is Actions.HIT:
+                        card = self.deck.deal_card()
+                        player.hand.hit(card)
+                    elif action in Actions.SPLIT:
+                        # somehow split into two hands for the same player?
+                        raise NotImplementedError("Have not done SPLIT of hand yet")
+                    else:
+                        raise ValueError(f"Action {action} is not valid")
+
+                    if verbose:
+                        print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand} AFTER action: {action}")
+                    if action is Actions.DOUBLE:
+                        breakpoint
+
+                if verbose and player.hand.value > 21:
+                    print(f"bust for player {player.id}")
+
+            # Dealer play is simple.
+            while self.dealer.hand.value < 17:
+                card = self.deck.deal_card()
+                self.dealer.hand.hit(card)
+
+            # Compare hands, payout to bankroll as needed
+            dealer_total = self.dealer.hand.value
+            for player in self.players:
+                player.total_hands += 1
+                if player.hand.value == dealer_total:
+                    # Push, there is no payout.
                     pass
-                elif action in Actions.SPLIT:
-                    # somehow split into two hands for the same player?
-                    pass
-                else:
-                    raise ValueError(f"Action {action} is not valid")
-
-            if player.hand.value > 21:
-                print(f"bust for player {player.id}")
-
-        print(self.players)
-        # Dealer play is simple.
-        while self.dealer.hand.value < 17:
-            card = self.deck.deal_card()
-            self.dealer.hand.hit(card)
-
-        # Compare hands, payout to bankroll as needed
-        ''' what are blackjack payouts?'''
-        dealer_total = self.dealer.hand.value
-        for player in self.players:
-            if player.hand.value == dealer_total:
-                # Push, there is no payout.
-                pass
-            elif player.hand.value > dealer_total:
-                # Win
-                if player.hand.value == 21:  # blackjack
-                    player.bankroll += (1.5 * player.hand_wager)
-                if player.hand.value > 21:  # bust
-                    player.bankroll -= player.hand_wager
-                else:  # > dealer total
+                elif dealer_total > 21:
+                    # Dealer bust
                     player.bankroll += player.hand_wager
-            else:  # player.hand.value < dealer_total
-                # Loss
-                player.bankroll -= player.hand_wager
-        print(f"Dealer Total {self.dealer.hand.value} from hand {self.dealer.hand}")
-        for player in self.players:
-            print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand}. Bankroll: {player.bankroll}")
-        breakpoint()
+                elif player.hand.value > dealer_total:
+                    # Win
+                    if player.hand.value == 21:  # blackjack
+                        player.bankroll += (1.5 * player.hand_wager)
+                    if player.hand.value > 21:  # bust
+                        player.bankroll -= player.hand_wager
+                    else:  # > dealer total
+                        player.bankroll += player.hand_wager
+                else:  # player.hand.value < dealer_total
+                    # Loss
+                    player.bankroll -= player.hand_wager
+            if verbose:
+                print(f"Dealer Total {self.dealer.hand.value} from hand {self.dealer.hand}")
+                for player in self.players:
+                    print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand}. Bankroll: {player.bankroll}")
+
+            print(self.players)
+            self.dealer.hand = Hand()
+            for player in self.players:
+                player.hand = Hand()
 
 
-def test_decision():
-    '''
-    Player 2 has Total 13 from hand 5,8 action: Actions.HIT
-    Player 2 has Total 20 from hand 5,8,7 action: Actions.HIT
-    Player 2 has Total 21 from hand 5,8,7,A action: Actions.HIT
-    bust for player 2
-    '''
-    player = Player()
-    player.hand.hit('5')
+def test_double():
+    deck = InfDeck()
+    player = PlayerBasic1(id=0)
+    player.hand_wager = player.wager()
     player.hand.hit('8')
-    action = player.decision([], [])
-    print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand} action: {action}")
-    player.hand.hit('7')
-    action = player.decision([], [])
-    print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand} action: {action}")
-    player.hand.hit('A')
-    action = player.decision([], [])
-    print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand} action: {action}")
+    player.hand.hit('3')
+    dealer_cards = Hand()
+    dealer_cards.held = ['4']
+    action = player.decision(dealer_cards=dealer_cards, cards_shown=[])
+    if action is Actions.DOUBLE:
+        player.hand_wager *= 2
+        card = deck.deal_card()
+        player.hand.hit(card)
     breakpoint()
 
 
 if __name__ == "__main__":
-    # test_decision()
-    game = Twentyone(number_players=3)
-    game.play()
+    # test_double()
+    game = Twentyone(player=PlayerBasic1, number_players=5)
+    game.play(n_rounds=10000, verbose=False)

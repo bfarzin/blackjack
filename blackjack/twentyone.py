@@ -63,11 +63,14 @@ class Hand():
     def __init__(self):
         self.reset()
 
+    def reset(self) -> None:
+        self.held = []
+
     def __repr__(self) -> str:
         return ",".join(self.held)
 
-    def reset(self) -> None:
-        self.held = []
+    def __len__(self) -> int:
+        return len(self.held)
 
     def hit(self, card: str) -> None:
         self.held.append(card)
@@ -96,7 +99,7 @@ class Player():
         self.hand_wager = None
 
     def __repr__(self) -> str:
-        return f"Player(id={self.id}, bankroll={self.bankroll}, total_hands={self.total_hands},avg_loss/hand={self.avg_edge_loss} , hand={self.hand})"
+        return f"Player(id={self.id}, bankroll={self.bankroll}, total_hands={self.total_hands}, avg_loss/hand={self.avg_edge_loss} , hand={self.hand})"
 
     def wager(self) -> float:
         '''Determine wager as fraction of bankroll?'''
@@ -217,7 +220,7 @@ class Twentyone():
                 # player implements strategy here. Player knows own cards
                 cards_shown = []  # TODO: Tabulate all non-dealer cards
                 dealer_cards = self.dealer.hand
-                while player.hand.value <= 21:
+                while player.hand.value < 21:
                     action = player.decision(dealer_cards, cards_shown)
                     if action is Actions.DOUBLE:
                         # Double wager, single card, stop regardless of total
@@ -225,7 +228,7 @@ class Twentyone():
                         card = self.deck.deal_card()
                         player.hand.hit(card)
                         break
-                    if action is Actions.STAND:
+                    elif action is Actions.STAND:
                         break
                     elif action is Actions.HIT:
                         card = self.deck.deal_card()
@@ -239,7 +242,7 @@ class Twentyone():
                     if verbose:
                         print(f"Player {player.id} has Total {player.hand.value} from hand {player.hand} AFTER action: {action}")
                     if action is Actions.DOUBLE:
-                        breakpoint
+                        breakpoint()
 
                 if verbose and player.hand.value > 21:
                     print(f"bust for player {player.id}")
@@ -254,16 +257,31 @@ class Twentyone():
             for player in self.players:
                 player.total_hands += 1
                 if player.hand.value == dealer_total:
-                    # Push, there is no payout.
+                    # If tie is 21, the natural wins:
+                    if player.hand.value == 21:
+                        if len(player.hand) == 2 and len(self.dealer.hand) == 2:
+                            # both natural, then we just push
+                            pass
+                        elif len(player.hand) == 2 and len(self.dealer.hand) > 2:
+                            # Player natural
+                            player.bankroll += player.hand_wager
+                        elif len(player.hand) > 2 and len(self.dealer.hand) == 2:
+                            # Dealer natural
+                            player.bankroll -= player.hand_wager
+                        else:
+                            # Both 21, neither natural
+                            pass
+                    # Any other tie, we push
                     pass
                 elif dealer_total > 21:
                     # Dealer bust
                     player.bankroll += player.hand_wager
                 elif player.hand.value > dealer_total:
                     # Win
-                    if player.hand.value == 21:  # blackjack
+                    if player.hand.value == 21 and len(player.hand) == 2:
+                        # Natural 21 pays 1.5x
                         player.bankroll += (1.5 * player.hand_wager)
-                    if player.hand.value > 21:  # bust
+                    elif player.hand.value > 21:  # bust
                         player.bankroll -= player.hand_wager
                     else:  # > dealer total
                         player.bankroll += player.hand_wager
@@ -299,5 +317,6 @@ def test_double():
 
 if __name__ == "__main__":
     # test_double()
-    game = Twentyone(player=PlayerBasic1, number_players=5)
-    game.play(n_rounds=10000, verbose=False)
+    game = Twentyone(player=PlayerBasic1, number_players=1)
+    game.play(n_rounds=50, verbose=True)
+    '''Still not qutie right.  After 1000 plays, it is positive for player.  After 5000 even more so.  Missing some condition.'''

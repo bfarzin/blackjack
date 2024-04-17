@@ -326,4 +326,4 @@ if __name__ == "__main__":
     # test_double()
     game = Twentyone(player=PlayerBasic1, number_players=5)
     game.play(n_rounds=50000, verbose=False)
-    '''Still not qutie right.  After 1000 plays, it is positive for player.  After 5000 even more so.  Missing some condition.'''
+    """small change"""
